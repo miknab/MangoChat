@@ -1,0 +1,8 @@
+# Directories
+notebooks
+Documents
+
+# Files
+*checkpoint*
+*.ipynb
+*.DS_Store
