@@ -127,7 +127,7 @@ class MangoDB(object):
         # Specify embedding model
         if embedding_model.lower() == "spacy":
             from langchain_community.embeddings.spacy_embeddings import SpacyEmbeddings
-            embedder = SpacyEmbeddings(model_name="de_core_web_sm")
+            embedder = SpacyEmbeddings(model_name="de_core_news_sm")
 
         elif embedding_model.lower() == "openai":
             raise ValueError("Embedding with OpenAI is currently not supported.")
