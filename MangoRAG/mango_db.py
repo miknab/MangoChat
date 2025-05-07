@@ -144,7 +144,7 @@ class MangoDB(object):
             from langchain_community.vectorstores import FAISS
             
             db = FAISS.from_documents(self.chunked_docs, embedding=embedder)
-            vector_store.save_local(path2db)
+            db.save_local(path2db)
             
         elif db_type.lower() == "weaviate":
             raise ValueError("Weaviate is currently not supported.")
