@@ -1,8 +1,10 @@
 # Directories
 notebooks
 Documents
+VectorStores
 
 # Files
 *checkpoint*
 *.ipynb
 *.DS_Store
+*pycache*
