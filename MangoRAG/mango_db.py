@@ -5,6 +5,10 @@ import shutil
 # 3rd party imports
 from langchain.document_loaders.pdf import PyPDFDirectoryLoader
 from langchain.schema import Document
+from langchain_core.embeddings.embeddings import Embeddings
+
+# Local imports
+from MangoRAG import mango_factories as factories
 
 
 class MangoDB(object):
@@ -22,9 +26,12 @@ class MangoDB(object):
     self.chunk_docs()
     self.create_db()
     """
-    def __init__(self):
+    def __init__(self, embedding_model: str):
         self.raw_docs: List[Document] = None
         self.chunked_docs: List[Document] = None
+        
+        # Specify embedding model
+        self.embedder: Embeddings = factories.get_embedding_model(embedding_model)
     
     def read_docs(self, path2docs: str) -> None:
         """
@@ -46,7 +53,11 @@ class MangoDB(object):
         # Load PDF documents and store them as a list into self.raw_docs
         self.raw_docs = document_loader.load() 
     
-    def chunk_docs(self, strategy: str, size: int, overlap: int) -> None:
+    def chunk_docs(self, 
+                   strategy: str, 
+                   size: int|None = None, 
+                   overlap: int|None = None
+                  ) -> None:
         """
         Chunks the documents in self.raw_docs and stores the
         result into self.chunked_docs.
@@ -56,12 +67,16 @@ class MangoDB(object):
         strategy : ['token', 'sentence', 'semantics']
             Strategy used to chunk the documents.
             
-        size : int
-            number of tokens per chunk (chunk_size)
+        size : int | None
+            number of tokens per chunk (chunk_size). 
+            Required if strategy == 'token'.
+            default: None
             
-        overlap : int
+        overlap : int | None
             number of tokens used in chunk overlap
-            between consecutive chunks
+            between consecutive chunks. Required if 
+            strategy == 'token'.
+            default: None
             
         Returns
         -------
@@ -70,9 +85,17 @@ class MangoDB(object):
         if self.raw_docs is None:
             raise ValueError("No raw documents found.")
     
+        # Note: In principle, the following if-elif-else block could also be
+        # encapsulated in a factory function. This would enhance consistency
+        # with the rest of the code. However, the different chunkers are so 
+        # wildly different in their initialization logic that the code would
+        # become much harder to read and understand if that logic would be 
+        # unified by using a factory function and a wrapper.
         if strategy.lower() == "token":
             from langchain.text_splitter import RecursiveCharacterTextSplitter as RCTSplitter
             # Initialize text splitter with specified parameters
+            if size is None or overlap is None:
+                raise ValueError("When strategy = 'token', both size and overlap must be specified.")
             chunker = RCTSplitter(chunk_size=size,
                                   chunk_overlap=overlap,
                                   length_function=len,  # Function to compute the length of the text
@@ -83,7 +106,8 @@ class MangoDB(object):
             raise ValueError("Sentence-based chunking is currently not supported.")
             
         elif strategy.lower() == "semantics":
-            raise ValueError("Semantics-based chunking is currently not supported.")
+            from langchain_experimental.text_splitter import SemanticChunker
+            chunker = SemanticChunker(self.embedder)
             
         else:
             raise ValueError("Invalid chunking strategy. Must be 'token', 'sentence', or 'semantics'.")
@@ -124,48 +148,13 @@ class MangoDB(object):
         if os.path.exists(path2db):
             shutil.rmtree(path2db)
          
-        # Specify embedding model
-        if embedding_model.lower() == "spacy":
-            from langchain_community.embeddings.spacy_embeddings import SpacyEmbeddings
-            embedder = SpacyEmbeddings(model_name="de_core_news_sm")
-
-        elif embedding_model.lower() == "openai":
-            raise ValueError("Embedding with OpenAI is currently not supported.")
-            from langchain.embeddings import OpenAIEmbeddings
-            
-        elif embedding_model.lower() == "nomic":
-            raise ValueError("Embedding with nomic is currently not supported.")
-            
-        else:
-            raise ValueError("Invalid embedding model. Must be 'spacy', 'openai', or 'nomic'.")
-        
-        # Specify database type
-        if db_type.lower() == "faiss":
-            from langchain_community.vectorstores import FAISS
-            
-            db = FAISS.from_documents(self.chunked_docs, embedding=embedder)
-            db.save_local(path2db)
-            
-        elif db_type.lower() == "weaviate":
-            raise ValueError("Weaviate is currently not supported.")
-            
-        elif db_type.lower() == "chroma":
-            from langchain.vectorstores.chroma import Chroma
-            # Create a new Chroma database from the documents using OpenAI embeddings
-            db = Chroma.from_documents(self.chunked_docs, embedder, persist_directory=path2db)
-            # Persist the database to disk
-            db.persist()
-
-        elif db_type.lower() == "qdrant":
-            raise ValueError("Qdrant is currently not supported.")
-            
-        elif db_type.lower() == "milvus":
-            raise ValueError("Milvus is currently not supported.")
-            
-        else:
-            raise ValueError("Invalid database type. Must be 'faiss', "
-                             + "'weaviate', 'chroma', 'qdrant', or 'milvus'."
-                            )
+        # Specify vector store
+        vector_store = factories.get_vector_store(db_type, 
+                                                  self.chunked_docs, 
+                                                  self.embedder, 
+                                                  path2db
+                                                 )
+        vector_store.persist()
         
         # Output message
         print(f"Saved {len(self.chunked_docs)} chunks to {path2db}.")
