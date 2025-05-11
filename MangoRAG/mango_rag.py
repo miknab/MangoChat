@@ -315,7 +315,7 @@ class MangoRAG(object):
             retriever = MangoRetriever(self.vector_store)
             print("done")
             print("\tretrieve...", end="")
-            top_k_chunks, similarity_scores = retriever.retrieve_chunks(query, self.top_k)
+            relevant_chunks, relevance_scores = retriever.retrieve_chunks(query, self.top_k)
             print("done")
         else:
             raise ValueError("Invalid db_type. Must be 'weaviate', 'faiss', 'chroma', 'qdrant', or 'milvus'.")
@@ -323,21 +323,24 @@ class MangoRAG(object):
         
         # Chunk reranking
         if self.rerank_model is not None:
-            print("Chunk reranking...", end="")
+            print("\nChunk reranking:")
+            print("----------------")
             if self.rerank_model.lower() in ['bge', 'ms-marco', 'colbert', 'jina']:
                 reranker = MangoReranker(self.rerank_model, self.top_n)
-                reranked_chunks, reranking_scores = reranker.rerank(self, top_k_chunks, query)
+                relevant_chunks, relevance_scores = reranker.rerank(self, relevant_chunks, query)
             else:
                 raise ValueError("Invalid reranker model name. Must be 'bge', 'ms-marco', 'colbert', or 'jina'.")
             print("DONE")
         
         # Create context
-        print("Context concatenation...", end="")
-        context_text = "\n\n -- \n\n".join([doc.page_content for doc in reranked_chunks])
+        print("\nContext concatenation:")
+        print("----------------------")
+        context_text = "\n\n -- \n\n".join([doc.page_content for doc in relevant_chunks])
         print("DONE")
         
         # Answer generation
-        print("Answer generation...", end="")
+        print("\nAnswer generation:")
+        print("------------------")
         PROMPT_TEMPLATE = (
             "Given the context below, answer the question.\n"
             "Context: {context}\n"
@@ -350,15 +353,18 @@ class MangoRAG(object):
         
         llm_chain = prompt_template | self.chat_model
         
+        print("Test")
         response = llm_chain.invoke({"context": context_text, "question": query})
         print("DONE")
         
         # Get sources of the matching documents
-        print("Source consolidation...", end="")
-        sources = [doc.metadata.get("source", None) for doc, reranking_score in zip(reranked_chunks, reranking_scores)]
+        print("\nSource consolidation:")
+        print("---------------------")
+        sources = [doc.metadata.get("source", None) for doc, score in zip(relevant_chunks, relevance_scores)]
         print("DONE")
 
         # Format and return response including generated text and sources
-        formatted_response = f"Response: {response_text}\nSources: {sources}"
+        formatted_response = f"Response: {response.content}\nSources: {sources}"
+        print(formatted_response)
         
-        return formatted_response, response_text
+        return formatted_response, response
