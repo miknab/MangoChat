@@ -1,12 +1,25 @@
 # Stdlib imports
-from typing import Tuple
+from typing import Tuple, List
+import psutil, os
 
 # Local imports
-import mango_db as db
+from MangoRAG import mango_db as db
+from MangoRAG import mango_factories as factories
 
 # 3rd party imports
 from langchain.schema import Document
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
+from langchain_core.messages.ai import AIMessage
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.embeddings.embeddings import Embeddings
 
+# REMARK: Further imports can be found embedded in the 
+# code below. This is done in order to avoid importing
+# packages that are not being used. The code below is
+# highly configurable and it depends on the configurations
+# which packages need to be important and which ones
+# are not needed.
     
 class MangoQueryTransformer(object):
     """
@@ -17,8 +30,8 @@ class MangoQueryTransformer(object):
     -------
     self.transform(user_query: str, method: str) -> str
     """
-    def __init__(self):
-        pass
+    def __init__(self, llm: BaseChatModel):
+        self.llm = llm
     
     def _rewrite(self, query: str) -> str:
         """
@@ -35,7 +48,33 @@ class MangoQueryTransformer(object):
         str
             rewritten query
         """
-        pass
+        REWRITE_PROMPT_TEMPLATE = (
+            "Rewrite the following query to make it more specific for document retrieval" 
+            "and only return the rewritten query and absolutely no other information:\n"
+            "Query: {query}\n"
+            "Rewritten Query:"
+            ""
+        )
+
+        rewrite_prompt = PromptTemplate(input_variables=["query"],
+                                        template=REWRITE_PROMPT_TEMPLATE
+                                       )
+        
+        # Compose the prompt and the LLM using the Runnable interface
+        rewrite_chain = rewrite_prompt | self.llm
+        
+        # Call the chain using invoke instead of run
+        rewritten_query = rewrite_chain.invoke({"query": query})
+        
+        if isinstance(rewritten_query, AIMessage):
+            print("Rewritten query:", rewritten_query.content)
+            return rewritten_query.content
+        elif isinstance(rewritten_query, str):
+            print("Rewritten query:", rewritten_query)
+            return rewritten_query
+        else:
+            # The code should never make it here
+            raise TypeError(f"rewritten_query should be of type Document or str, but is {type(rewritten_query)}.")
         
     def _decompose(self, query: str) -> str:
         """
@@ -52,9 +91,23 @@ class MangoQueryTransformer(object):
         str
             decomposed query
         """
-        pass
+        DECOMPOSITION_PROMPT_TEMPLATE = (
+            "Break down the following question into simpler sub-questions:\n"
+            "Question: {query}\n"
+            "Sub-questions:"
+        )
         
-    def _generate_pseudodoc(self, query: str) -> str:
+        decompose_prompt = PromptTemplate(input_variables=["query"], 
+                                          template=DECOMPOSITION_PROMPT_TEMPLATE
+                                         )
+        decomposer_chain = decompose_prompt | self.llm
+
+        decomposed_text = decomposer_chain.invoke({"query": query})
+        print("Decomposed query:", decomposed_text.content)
+        #subquestions = [q.strip("- ").strip() for q in decomposed_text.split("\n") if q.strip()]
+        return decomposed_text
+        
+    def _generate_pseudodoc(self, query: str, base_embedding_name: str) -> str:
         """
         Follows HyDE (hypothetical document extraction), i.e. a hypothetical
         answer is hallucinated and relevant chunks are retrieved based on
@@ -70,7 +123,14 @@ class MangoQueryTransformer(object):
         str
             hypothetical document
         """
-        pass
+        from langchain.chains.hyde.base import HypotheticalDocumentEmbedder
+        base_embedder = factories.get_embedding_model(base_embedding_name)
+        hyde_embedder = HypotheticalDocumentEmbedder(llm=self.llm,
+                                                     base_embedder=base_embedder
+                                                    )
+        
+        hypo_doc = hyde_embedder.embed_query(query)
+        return hypo_doc
         
     def transform(self, user_query: str, method: str) -> str:
         """
@@ -89,11 +149,11 @@ class MangoQueryTransformer(object):
         trf_query : str
             Transformed query
         """
-        if method.lower() = "rewrite":
+        if method.lower() == "rewrite":
             trf_query = self._rewrite(user_query)
-        elif method.lower() = "decompose":
+        elif method.lower() == "decompose":
             trf_query = self._decompose(user_query)
-        elif self.method.lower() = "hyde":
+        elif method.lower() == "hyde":
             trf_query = self._generate_pseudodoc(user_query)
         else:
             raise ValuerError("Invalid query transformation method. Must be 'rewrite', 'decompose' or 'hyde'.")
@@ -104,29 +164,8 @@ class MangoRetriever(object):
     """
     Retriever class to retrieve relevant chunks for a given query.
     """
-    def __init__(self, path2db: str, embedding_model: str, db_type: str):
-        # Prepare the database
-        if db_type.lower() == "faiss":
-            from langchain_community.vectorstores import FAISS
-            self.db = FAISS.load_local(path2db, embeddings=embedding_model)
-            
-        elif db_type.lower() == "weaviate":
-            raise ValueError("Weaviate is currently not supported.")
-            
-        elif db_type.lower() == "chroma":
-            from langchain.vectorstores.chroma import Chroma
-            self.db = Chroma(persist_directory=path2db, embedding_function=embedding_model)
-            
-        elif db_type.lower() == "qdrant":
-            raise ValueError("Qdrant is currently not supported.")
-            
-        elif db_type.lower() == "milvus":
-            raise ValueError("Milvus is currently not supported.")
-            
-        else:
-            raise ValueError("Invalid database type. Must be 'faiss', "
-                             + "'weaviate', 'chroma', 'qdrant', or 'milvus'."
-                            )
+    def __init__(self, vector_store: factories.VectorStoreAdapter):
+        self.db = vector_store
         
     def retrieve_chunks(self, user_query: str, top_k: int) -> Tuple[List[Document], List[float]]:
         """
@@ -162,7 +201,6 @@ class MangoReranker(object):
         from langchain.retrievers.document_compressors import RerankersRerank
         from rerankers.models import load_model
         
-        if self.rerank_model.lower() in []
         # Load reranker model from rerankers package
         if self.rerank_model.lower() == "bge":
             model = load_model("BAAI/bge-reranker-base")
@@ -228,62 +266,97 @@ class MangoRAG(object):
     -------
     self.answer_query(user_query: str)
     """
-    def __init__(self, trf_method: str, path2db: str, db_type: str, embedding_model: str, top_k: int, top_n: int, rerank_model: str):
+    def __init__(self, 
+                 path2db: str, 
+                 db_type: str, 
+                 embedding_model: str, 
+                 top_k: int,
+                 chat_model_name: str | None = None,
+                 chat_model: BaseChatModel | None = None,
+                 trf_method: str | None = None,  
+                 rerank_model: str | None = None,
+                 top_n: int | None = None,
+                ):
+        
         self.user_query = None
         self.trf_method = trf_method
-        self.path2db = path2db  
+        self.embedding = factories.get_embedding_model(embedding_model)
         self.db_type = db_type
-        self.embedding_model = embedding_model  # TODO: make sure it is enforced that this parameter
-                                                # has the same value as during vector store generation
+        self.vector_store = factories.get_vector_store(db_type, self.embedding, path2db, load=True)
         self.top_k = top_k
-        self.top_n = top_n
+        self.top_n = top_n if top_n else -1 
         self.rerank_model = rerank_model
+        self.chat_model = chat_model if chat_model else factories.get_llm(chat_model_name)
         
-        if self.top_k > self.top_n:
-            raise ValueError("top_k (reranker) must be smaller or equal to top_n (retriever).")
+        if self.top_n > self.top_k:
+            print(self.top_k, self.top_n)
+            raise ValueError("top_n (reranker) must be smaller or equal to top_k (retriever).")
     
     def answer_query(self, user_query: str):
+        self.user_query = user_query  # keep a copy of the original query
+        query = self.user_query
+        
         # Query transformation
-        if self.trf_method.lower() in ['rewrite', 'decompose', 'hyde']:
-            trafo = MangoQueryTransformer()
-            trf_query = trafo.transform(user_query, self.trf_method)
-        else:
-            raise ValueError("Invalid trf_method. Must be 'rewrite', 'decompose', or 'hyde'.")
+        if self.trf_method is not None:
+            print("Query transformation:")
+            print("---------------------")
+            if self.trf_method.lower() in ['rewrite', 'decompose', 'hyde']:
+                trafo = MangoQueryTransformer(llm=self.chat_model)
+                query = trafo.transform(query, self.trf_method)
+                print("DONE")
+            else:
+                raise ValueError("Invalid trf_method. Must be 'rewrite', 'decompose', or 'hyde'.")
         
         # Query embedding & chunk retrieval
+        print("\nQuery embedding & chunk retrieval:")
+        print("----------------------------------")
         if self.db_type.lower() in ['weaviate', 'faiss', 'chroma', 'qdrant', 'milvus']:
-            retriever = MangoRetriever(self.path2db, self.embedding_model, self.db_type)
-            top_k_chunks, similarity_scores = retriever.retrieve_chunks(user_query, self.top_k)
+            print("\tCreating retriever...", end="")
+            retriever = MangoRetriever(self.vector_store)
+            print("done")
+            print("\tretrieve...", end="")
+            top_k_chunks, similarity_scores = retriever.retrieve_chunks(query, self.top_k)
+            print("done")
         else:
             raise ValueError("Invalid db_type. Must be 'weaviate', 'faiss', 'chroma', 'qdrant', or 'milvus'.")
-            
+        print("DONE")
+        
         # Chunk reranking
-        if self.rerank_model.lower() in ['bge', 'ms-marco', 'colbert', 'jina']:
-            reranker = MangoReranker(self.rerank_model, self.top_n)
-            reranked_chunks, reranking_scores = reranker.rerank(self, top_k_chunks, user_query: str)
-        else:
-            raise ValueError("Invalid reranker model name. Must be 'bge', 'ms-marco', 'colbert', or 'jina'.")
+        if self.rerank_model is not None:
+            print("Chunk reranking...", end="")
+            if self.rerank_model.lower() in ['bge', 'ms-marco', 'colbert', 'jina']:
+                reranker = MangoReranker(self.rerank_model, self.top_n)
+                reranked_chunks, reranking_scores = reranker.rerank(self, top_k_chunks, query)
+            else:
+                raise ValueError("Invalid reranker model name. Must be 'bge', 'ms-marco', 'colbert', or 'jina'.")
+            print("DONE")
         
         # Create context
+        print("Context concatenation...", end="")
         context_text = "\n\n -- \n\n".join([doc.page_content for doc in reranked_chunks])
- 
-        # Answer generation
-        prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-        prompt = prompt_template.format(context=context_text, question=user_query)
-
-        if self.chat_model_name.lower() == "openai":
-            from langchain.chat_models import ChatOpenAI
-            llm = ChatOpenAI()
-        elif self.chat_model_name.lower() == "ollama":
-            from langchain.chat_models import ChatOllama
-            llm = ChatOllama()
-        else:
-            raise ValueError("Invalid chat model name. Must be 'openai'.")
+        print("DONE")
         
-        response_text = llm.predict(prompt)
-
+        # Answer generation
+        print("Answer generation...", end="")
+        PROMPT_TEMPLATE = (
+            "Given the context below, answer the question.\n"
+            "Context: {context}\n"
+            "Question: {question}"
+        )
+        
+        prompt_template = PromptTemplate(input_variables=["query"], 
+                                         template=PROMPT_TEMPLATE
+                                         )
+        
+        llm_chain = prompt_template | self.chat_model
+        
+        response = llm_chain.invoke({"context": context_text, "question": query})
+        print("DONE")
+        
         # Get sources of the matching documents
+        print("Source consolidation...", end="")
         sources = [doc.metadata.get("source", None) for doc, reranking_score in zip(reranked_chunks, reranking_scores)]
+        print("DONE")
 
         # Format and return response including generated text and sources
         formatted_response = f"Response: {response_text}\nSources: {sources}"
