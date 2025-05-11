@@ -1,21 +1,79 @@
 # Stdlib imports
 from typing import Callable, Any, List
+import os
 
 # 3rd party imports
 from langchain.schema import Document
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.embeddings.embeddings import Embeddings
+from langchain_core.vectorstores.base import VectorStore
 
-class VectorStoreWrapper(object):
+class VectorStoreAdapter(object):
     """
-    Wrapper class to unify initialization logic and persistence
+    Adapter class to unify initialization logic and persistence
     methods of different vector store classes.
+    
+    Parameter:
+    ----------
+    store : Any
+        Vector store instance
+    
+    persist_fn : Callable[[], None]
+        Persistence function specific to the vector store in self.store.
+    
+    add_fn : Callable[[list], None]
+        Document adding function specific to the vector store in self.store.
+    
+    Methods:
+    --------
+    self.add_documents(docs: List[Document]) -> None
+    self.persist() -> None
     """
-    def __init__(self, db: Any, persist_fn: Callable[[], None]):
-        self.db = db
-        self.persist = persist_fn
+    def __init__(self, store: Any, persist_fn: Callable[[], None]|None, add_fn: Callable[[list], None]) -> None:
+        self.store = store
+        self._persist = persist_fn
+        self._add = add_fn
+
+    def add_documents(self, docs: List[Document]) -> None:
+        """
+        Add documents to vector store.
         
-def get_vector_store(db_type: str, docs: List[Document], embedder, path2db: str) -> VectorStoreWrapper:
+        Parameter:
+        ----------
+        docs : List[Document]
+            A list of langchain documents.
+        """
+        self._add(docs)
+
+    def persist(self) -> None:
+        """
+        Write vector store to disc.
+        
+        Parameter:
+        ----------
+        None
+        """
+        if self._persist:
+            self._persist()
+        
+    def __getattr__(self, name: str) -> Any:
+        """
+        Forwards attributes of self.store to VectorStoreAdapter.
+        
+        Parameter:
+        ----------
+        name : str
+            Name of self.store attribute
+            
+        Returns:
+        --------
+        Any
+            Attribute of self.store
+        """
+        # TODO: make this type safe
+        return getattr(self.store, name)
+        
+def get_vector_store(db_type: str, embedding: Embeddings, path2db: str, load: bool = False) -> VectorStoreAdapter:
     """
     Returns the vector store specified by db_type.
     
@@ -37,13 +95,24 @@ def get_vector_store(db_type: str, docs: List[Document], embedder, path2db: str)
     
     if db_type == "faiss":
         from langchain_community.vectorstores import FAISS
-        db = FAISS.from_documents(docs, embedding=embedder)
-        return VectorStoreWrapper(db, persist_fn=lambda: db.save_local(path2db))
+        if load:
+            db = FAISS.load_local(path2db, embeddings=embedding, allow_dangerous_deserialization=True)
+        else:
+            db = FAISS(embedding_function=embedding)
+        
+        return VectorStoreAdapter(store=db,
+                                  persist_fn=lambda: db.save_local(path2db),
+                                  add_fn=db.add_documents
+                                 )
 
     elif db_type == "chroma":
-        from langchain.vectorstores.chroma import Chroma
-        db = Chroma.from_documents(docs, embedder, persist_directory=path2db)
-        return VectorStoreWrapper(db, persist_fn=db.persist)
+        from langchain_chroma import Chroma
+        db = Chroma(embedding_function=embedding, persist_directory=path2db)
+        
+        return VectorStoreAdapter(store=db,
+                                  persist_fn=None,
+                                  add_fn=db.add_documents
+                                 )
 
     elif db_type == "weaviate":
         raise ValueError("Weaviate is currently not supported.")
@@ -91,7 +160,7 @@ def get_embedding_model(embedding_name: str) -> Embeddings:
     else:
         raise ValueError("Invalid embedding model. Must be 'spacy', 'openai', or 'nomic'.")
             
-def get_llm(llm_name: str) -> BaseChatModel:
+def get_llm(llm_name: str, temperature: float=1) -> BaseChatModel:
     """
     Returns the chat model specified by llm_name.
     
@@ -101,19 +170,31 @@ def get_llm(llm_name: str) -> BaseChatModel:
 
     Parameter
     ---------
-    llm_name : ['openai', 'ollama']
+    llm_name : ['llama[version], 'gpt-[version]']
         Name of the chat model
+        
+    Optional Parameter
+    ------------------
+    temperature : float
+        Temperature of the LLM.
         
     Raises
     ------
     ValueError
         If chat model name is not in ['openai', 'ollama'].
     """
-    if llm_name == "openai":
-        from langchain.chat_models import ChatOpenAI
-        return ChatOpenAI()
-    elif llm_name == "ollama":
-        from langchain.chat_models import ChatOllama
-        return ChatOllama()
+    if "gpt" in llm_name:
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(model=llm_name, 
+                          temperature = temperature,
+                          openai_api_key=os.environ['OPENAI_API_KEY']
+                         )
+    elif "llama" in llm_name:
+        from langchain_ollama import ChatOllama
+        return ChatOllama(model=llm_name, 
+                          temperature=temperature)
+    elif "fake" in llm_name:
+        from langchain.llms.fake import FakeListLLM
+        return FakeListLLM(responses=["Rewritten Query"])
     else:
         raise ValueError("Invalid chat model name. Must be 'openai' or 'ollama'.")
