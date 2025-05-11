@@ -148,12 +148,12 @@ class MangoDB(object):
         if os.path.exists(path2db):
             shutil.rmtree(path2db)
          
-        # Specify vector store
+        # Specify vector store through factory function
         vector_store = factories.get_vector_store(db_type, 
-                                                  self.chunked_docs, 
                                                   self.embedder, 
-                                                  path2db
-                                                 )
+                                                  path2db, 
+                                                  load=False)
+        vector_store.add_documents(self.chunked_docs)
         vector_store.persist()
         
         # Output message
