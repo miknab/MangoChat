@@ -49,11 +49,11 @@ class MangoQueryTransformer(object):
             rewritten query
         """
         REWRITE_PROMPT_TEMPLATE = (
-            "Rewrite the following query to make it more specific for document retrieval" 
-            "and only return the rewritten query and absolutely no other information:\n"
-            "Query: {query}\n"
-            "Rewritten Query:"
-            ""
+            "Schreibe die folgende Anfrage so um, dass sie spezifischer für die Dokumentensuche "
+            "(document retrieval) wird. Gib lediglich die umgeschriebene Anfrage zurück und "
+            "verzichte auf jegliche Zusatzinformationen:\n"
+            "Anfrage: {query}\n"
+            "Umgeschriebene Anfrage:"
         )
 
         rewrite_prompt = PromptTemplate(input_variables=["query"],
@@ -67,10 +67,10 @@ class MangoQueryTransformer(object):
         rewritten_query = rewrite_chain.invoke({"query": query})
         
         if isinstance(rewritten_query, AIMessage):
-            print("Rewritten query:", rewritten_query.content)
+            print("Umgeschriebene Anfrage:", rewritten_query.content)
             return rewritten_query.content
         elif isinstance(rewritten_query, str):
-            print("Rewritten query:", rewritten_query)
+            print("Umgeschriebene Anfrage:", rewritten_query)
             return rewritten_query
         else:
             # The code should never make it here
@@ -92,10 +92,11 @@ class MangoQueryTransformer(object):
             decomposed query
         """
         DECOMPOSITION_PROMPT_TEMPLATE = (
-            "Break down the following question into simpler sub-questions:\n"
-            "Question: {query}\n"
-            "Sub-questions:"
-        )
+            "Zerlege die nachfolgende, komplexe Frage in einfachere Teilfragen:\n"
+            "Frage: {query}\n"
+            "Teilfragen:"
+            
+        )    
         
         decompose_prompt = PromptTemplate(input_variables=["query"], 
                                           template=DECOMPOSITION_PROMPT_TEMPLATE
@@ -103,7 +104,7 @@ class MangoQueryTransformer(object):
         decomposer_chain = decompose_prompt | self.llm
 
         decomposed_text = decomposer_chain.invoke({"query": query})
-        print("Decomposed query:", decomposed_text.content)
+        print("Teilfragen:", decomposed_text.content)
         #subquestions = [q.strip("- ").strip() for q in decomposed_text.split("\n") if q.strip()]
         return decomposed_text
         
@@ -342,9 +343,12 @@ class MangoRAG(object):
         print("\nAnswer generation:")
         print("------------------")
         PROMPT_TEMPLATE = (
-            "Given the context below, answer the question.\n"
-            "Context: {context}\n"
-            "Question: {question}"
+            "Beantworte die Frage basierend auf dem nachfolgenden Kontext.\n"
+            "Kontext: {context}\n"
+            "Frage: {question}\n"
+            "Falls du keine Antwort auf meine Frage im zur Verfügung gestellten "
+            "Kontext finden kannst, antworte mit 'Ich kann die Frage leider nicht "
+            "beantworten, da mir die nötigen Informationen dafür fehlen.'"
         )
         
         prompt_template = PromptTemplate(input_variables=["query"], 
@@ -364,7 +368,7 @@ class MangoRAG(object):
         print("DONE")
 
         # Format and return response including generated text and sources
-        formatted_response = f"Response: {response.content}\nSources: {sources}"
+        formatted_response = f"Antwort: {response.content}\n\nQuellen: {sources}"
         print(formatted_response)
         
         return formatted_response, response
