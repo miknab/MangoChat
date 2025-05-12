@@ -357,7 +357,6 @@ class MangoRAG(object):
         
         llm_chain = prompt_template | self.chat_model
         
-        print("Test")
         response = llm_chain.invoke({"context": context_text, "question": query})
         print("DONE")
         
@@ -371,4 +370,4 @@ class MangoRAG(object):
         formatted_response = f"Antwort: {response.content}\n\nQuellen: {sources}"
         print(formatted_response)
         
-        return formatted_response, response
+        return formatted_response, sources, response
