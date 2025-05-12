@@ -20,6 +20,18 @@ class MangoDB(object):
     chunks them, embeds the chunks, and stores the resulting embeddings
     in a vector store.
     
+    Attributes
+    ----------
+    self.raw_docs : List[Document]
+        List of documents from the text corpus used by the RAG as context.
+        
+    self.chunked_docs : List[Document]
+        List of chunked documents from the text corpus used by the RAG as
+        context.
+        
+    self.embedder : langchain_core.embeddings.embeddings.Embeddings
+        Embedding model used to create the vector store.
+        
     Methods
     -------
     self.read_docs()
