@@ -26,9 +26,14 @@ class MangoQueryTransformer(object):
     Offers several query transformation techniques in order to modify
     query such that the quality of the resulting answer improves.
     
+    Attributes
+    ----------
+    llm : langchain_core.language_models.chat_models.BaseChatModel
+        The LLM used in the RAG model.
+    
     Methods
     -------
-    self.transform(user_query: str, method: str) -> str
+    transform(user_query: str, method: str) -> str
     """
     def __init__(self, llm: BaseChatModel):
         self.llm = llm
@@ -163,7 +168,23 @@ class MangoQueryTransformer(object):
     
 class MangoRetriever(object):
     """
-    Retriever class to retrieve relevant chunks for a given query.
+    Retrieves relevant chunks for a given query.
+    
+    Parameters
+    ----------
+    vector_store : mango_factories.VectorStoreAdapter
+        The vector store used in this RAG system (wrapped inside the 
+        interface-unifying VectorStoreAdapter)
+        
+    Attributes
+    ----------
+    db : mango_factories.VectorStoreAdapter
+        The vector store used in this RAG system (wrapped inside the 
+        interface-unifying VectorStoreAdapter)
+        
+    Methods
+    -------
+    retrieve_chunks(user_query: str, top_k: int) -> Tuple[List[Document], List[float]]
     """
     def __init__(self, vector_store: factories.VectorStoreAdapter):
         self.db = vector_store
@@ -193,12 +214,55 @@ class MangoRetriever(object):
 class MangoReranker(object):
     """
     Reranks retrieved chunks in order to improve answer quality.
+    
+    Parameters
+    ----------
+    rerank_model : str
+        Model used to rerank the chunks retrieved from the vector store.
+        
+    top_n : int
+        Number of reranked chunks to retain.
+        
+    Attributes
+    ----------
+    self.rerank_model : ['bge', 'ms-marco', 'colbert', 'jina']
+        Model used to rerank the chunks retrieved from the vector store.
+    
+    top_n : int
+        Number of reranked chunks to retain.
+
+    Methods
+    -------
+    rerank(docs: List[Document], user_query: str) -> Tuple[List[Document], List[float]]
     """
-    def __init__(self, rerank_model: str, top_k):
+    def __init__(self, rerank_model: str, top_n: int):
         self.rerank_model = rerank_model
-        self.top_k = top_k
+        self.top_n = top_n
          
     def rerank(self, docs: List[Document], user_query: str) -> Tuple[List[Document], List[float]]:
+        """
+        Performs chunk/document reranking
+        
+        Parameters
+        ----------
+        docs : List[Document]
+            List of documents (chunks) to be reranked.
+            
+        user_query : str
+            Query based on which the documents will be reranked.
+            
+        Returns
+        -------
+        Tuple[List[Document], List[float]]
+            A 2-tuple containing two lists. The first list contains all the
+            documents/chunks retained after reranking and the second list
+            contains the corresponding reranking scores.
+            
+        Raises
+        ------
+        ValueError
+            If invalid reranking model name is specified in rerank_model.
+        """
         from langchain.retrievers.document_compressors import RerankersRerank
         from rerankers.models import load_model
         
@@ -215,7 +279,7 @@ class MangoReranker(object):
             raise ValueError("Invalid reranker model name. Must be 'bge', 'ms-marco', 'colbert', or 'jina').")
         
         # Wrap in LangChain-compatible reranker
-        reranker = RerankersRerank(model=model, top_n=self.top_k)
+        reranker = RerankersRerank(model=model, top_n=self.top_n)
 
         # Compress documents (rerank) manually
         reranked_docs = reranker.compress_documents(docs, query=user_query)
@@ -263,9 +327,41 @@ class MangoRAG(object):
     rerank_model : ['bge', 'ms-marco', 'colbert', 'jina']
         Model used for chunk reranking.
         
+    Attributes
+    ----------
+    user_query : str
+        Input user query to be processed by RAG.
+        
+    trf_method : ['rewrite', 'decompose', 'hyde']
+        Name of the query transformation method
+    
+    embedding : langchain_core.embeddings.embeddings import Embeddings
+        Embedding model used to create and query the vector store
+        
+    db_type : str
+        Name of vector store used.
+    
+    vector_store : mango_factories.VectorStoreAdapter
+        The vector store used in this RAG system (wrapped inside the 
+        interface-unifying VectorStoreAdapter)
+    
+    top_k : int
+        Number of documents/chunks retrieved.
+        
+    top_n : int
+        Number of documents/chunks retained after reranking
+        
+    rerank_model : str
+        Name of the rearanking model used (must be in ['bge', 'ms-marco', 
+        'colbert', 'jina'])
+        
+    chat_model : langchain_core.language_models.chat_models.BaseChatModel$
+        LLM used at the heart of this RAG. Currently only LLMs from the OpenAI
+        and the Llama-families are supported.
+        
     Methods
     -------
-    self.answer_query(user_query: str)
+    answer_query(user_query: str) -> Tuple[str, List[str], AIMessage]
     """
     def __init__(self, 
                  path2db: str, 
@@ -293,7 +389,35 @@ class MangoRAG(object):
             print(self.top_k, self.top_n)
             raise ValueError("top_n (reranker) must be smaller or equal to top_k (retriever).")
     
-    def answer_query(self, user_query: str):
+    def answer_query(self, user_query: str) -> Tuple[str, List[str], AIMessage]:
+        """
+        Executes the RAG model to generate the response to the query.
+        
+        Parameters
+        ----------
+        user_query : str
+            Input user query to be processed by RAG model.
+            
+        Returns
+        -------
+        Tuple[str, List[str], AIMessage]
+            Returns a 3-tuple containing
+            (1) the response text of the LLM
+            (2) the list of documents used as context
+            (3) the full response object generated by the LLM (contains the 
+                respons text and additional information)
+                
+        Raises
+        ------
+        ValueError
+            If trf_method is not in ['rewrite', 'decompose', 'hyde']
+            
+        ValueError
+            If db_type is not in ['weaviate', 'faiss', 'chroma', 'qdrant', 'milvus']
+            
+        ValueError
+            If rerank_model is not in ['bge', 'ms-marco', 'colbert', 'jina']
+        """
         self.user_query = user_query  # keep a copy of the original query
         query = self.user_query
         

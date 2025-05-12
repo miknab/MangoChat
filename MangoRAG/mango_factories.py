@@ -13,7 +13,7 @@ class VectorStoreAdapter(object):
     Adapter class to unify initialization logic and persistence
     methods of different vector store classes.
     
-    Parameter:
+    Parameters
     ----------
     store : Any
         Vector store instance
@@ -23,9 +23,23 @@ class VectorStoreAdapter(object):
     
     add_fn : Callable[[list], None]
         Document adding function specific to the vector store in self.store.
-    
-    Methods:
+        
+    Attributes
+    ----------
+    store : Any
+        The vector store used for the RAG system.
+        
+    Privates
     --------
+    _persist : Callable[[], None]|None
+        The vector store-specific method to write the vector store to disc, i.e.
+        to persist it.
+        
+    _add : Callable[[], None]|None
+        The vector store-specific method to add new documents to it.
+    
+    Methods
+    -------
     self.add_documents(docs: List[Document]) -> None
     self.persist() -> None
     """
@@ -181,7 +195,8 @@ def get_llm(llm_name: str, temperature: float=1) -> BaseChatModel:
     Raises
     ------
     ValueError
-        If chat model name is not in ['openai', 'ollama'].
+        If chat model name does not contain any of 
+        ['gpt', 'llama', 'fake'].
     """
     if "gpt" in llm_name:
         from langchain_openai import ChatOpenAI

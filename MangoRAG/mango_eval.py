@@ -18,14 +18,14 @@ class RAGEvaluator(object):
         
     Attributes
     ----------
-    self.sample_queries : List[str]
+    sample_queries : List[str]
         A list of manually defined, hard-coded queries on which
         self.rag is tested.
         
-    self.expected_responses : List[str]
+    expected_responses : List[str]
         Ground-truth answers to the queries defined in self.sample_queries.
     
-    self.rag : mango_rag.MangoRAG
+    rag : mango_rag.MangoRAG
         The RAG system to be evaluated.
         
     Methods

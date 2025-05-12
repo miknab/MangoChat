@@ -22,14 +22,14 @@ class MangoDB(object):
     
     Attributes
     ----------
-    self.raw_docs : List[Document]
+    raw_docs : List[Document]
         List of documents from the text corpus used by the RAG as context.
         
-    self.chunked_docs : List[Document]
+    chunked_docs : List[Document]
         List of chunked documents from the text corpus used by the RAG as
         context.
         
-    self.embedder : langchain_core.embeddings.embeddings.Embeddings
+    embedder : langchain_core.embeddings.embeddings.Embeddings
         Embedding model used to create the vector store.
         
     Methods
@@ -93,6 +93,18 @@ class MangoDB(object):
         Returns
         -------
         None
+        
+        Raises
+        ------
+        ValueError
+            If raw_docs is None, i.e. if the method read_docs needs to be
+            executed first.
+            
+        ValueError
+            If strategy.lower() == "token" and either size or overlap is None.
+            
+        ValueError
+            If strategy.lower() is not in ['token', 'sentence', or 'semantics']
         """
         if self.raw_docs is None:
             raise ValueError("No raw documents found.")
@@ -151,6 +163,12 @@ class MangoDB(object):
         
         db_type: ['weaviate', 'faiss', 'chroma', 'qdrant', 'milvus']
             Type of database used to create the vector store
+            
+        Raises
+        ------
+        ValueError
+            If chunked_docs is None, i.e. if the method chunk_docs  needs
+            to be executed first.
         """
         # Sanity check (status)
         if self.chunked_docs is None:
